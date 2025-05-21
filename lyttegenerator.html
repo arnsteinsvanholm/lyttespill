@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
   <meta charset="UTF-8" />
-  <title>Lyttespill‑generator 3.2</title>
+  <title>Lyttespill‑generator 3.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
     :root{--brand:#3b82f6;--bg:#f3f4f6;--text:#111827;--danger:#ef4444;--success:#10b981;}
@@ -26,25 +26,25 @@
   </style>
 </head>
 <body>
-  <h1>Lyttespill‑generator 3.2</h1>
+  <h1>Lyttespill‑generator 3.3</h1>
   <div class="wrapper">
     <label>YouTube‑link
       <input type="text" id="youtubeUrl" placeholder="https://youtu.be/…" />
     </label>
-    <label>Hele sangteksten <span class="note">(én linje per verslinje)</span>
+    <label>Hele sangteksten <span class="note">(én linje per vers)</span>
       <textarea id="lyricsInput" rows="10"></textarea>
     </label>
     <label>Ord som skal skjules <span class="note">(komma‑separert)</span>
       <input type="text" id="missingWords" placeholder="love, heart, night" />
     </label>
-    <label>Standard rulletempo <span class="note">(ms mellom linjene)</span>
+    <label>Standard rulletempo <span class="note">(ms mellom linjene)</span>
       <input type="number" id="lineInterval" value="3000" min="250" step="250" />
     </label>
 
     <button id="buildEditorBtn">Lag timing‑editor</button>
     <button id="previewBtn" disabled>Forhåndsvis spill</button>
     <button id="makeBtn" disabled>Last ned spill</button>
-    <a id="downloadLink">⬇️ lyttespill.html</a>
+    <a id="downloadLink">⬇️ lyttespill.html</a>
 
     <label>Kopier HTML‑koden manuelt
       <textarea id="output" readonly></textarea>
@@ -56,86 +56,58 @@
 
 <script src="https://www.youtube.com/iframe_api" async></script>
 <script>
-  // ---------- Helper aliases ----------
-  const $=id=>document.getElementById(id);
-  const esc=txt=>txt.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const vidId=u=>(u.match(/[?&]v=([^&]+)/)||u.match(/youtu\.be\/([^?]+)/)||[])[1]||'';
+// ===== Helper‑funksjoner =====
+const $ = id => document.getElementById(id);
+const esc = t => t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const vidId = u => (u.match(/[?&]v=([^&]+)/)||u.match(/youtu\.be\/([^?]+)/)||[])[1]||'';
 
-  // ---------- Elements ----------
-  const youtubeUrlIn=$('youtubeUrl'), lyricsIn=$('lyricsInput'), missingIn=$('missingWords'), lineMsIn=$('lineInterval');
-  const buildBtn=$('buildEditorBtn'), previewBtn=$('previewBtn'), makeBtn=$('makeBtn');
-  const timingEditor=$('timingEditor'), previewFrame=$('previewFrame'), outArea=$('output'), dlLink=$('downloadLink');
+// ===== DOM‑refs =====
+const urlIn=$('youtubeUrl'), lyricsIn=$('lyricsInput'), wordsIn=$('missingWords'), msIn=$('lineInterval');
+const buildBtn=$('buildEditorBtn'), prevBtn=$('previewBtn'), makeBtn=$('makeBtn');
+const editor=$('timingEditor'), frame=$('previewFrame'), out=$('output'), dl=$('downloadLink');
+let previewPlayer=null;
 
-  let previewPlayer=null;
+buildBtn.onclick=buildEditor;
+prevBtn.onclick=()=>frame.srcdoc=createGame();
+makeBtn.onclick=()=>{const h=createGame();out.value=h;dl.href=URL.createObjectURL(new Blob([h],{type:'text/html'}));dl.style.display='inline-block';};
 
-  // ---------- Event bindings ----------
-  buildBtn.onclick=buildTimingEditor;
-  previewBtn.onclick=()=>previewFrame.srcdoc=createGameHtml();
-  makeBtn.onclick=()=>{const html=createGameHtml();outArea.value=html;dlLink.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));dlLink.style.display='inline-block';};
+function collectDelays(){return Array.from(editor.querySelectorAll('tbody input[type=number]')).map(n=>+n.value*1000);}  
 
-  function collectDelays(){return Array.from(timingEditor.querySelectorAll('tbody input[type="number"]')).map(n=>+n.value*1000);}
+function buildEditor(){
+  const lines=lyricsIn.value.trim().split(/\r?\n/).filter(Boolean);
+  if(!urlIn.value.trim()||!lines.length){alert('Fyll ut alle feltene.');return;}
+  editor.innerHTML='';
+  if(window.YT&&YT.Player){const d=document.createElement('div');d.id='videoPrev';d.style.maxWidth='360px';d.style.marginBottom='1rem';editor.appendChild(d);if(!previewPlayer)previewPlayer=new YT.Player('videoPrev',{width:360,height:203,videoId:vidId(urlIn.value.trim())});}
+  const table=document.createElement('table');table.innerHTML='<thead><tr><th>Linje</th><th>Tid (sek)</th><th>⏱</th><th>Finjuster</th></tr></thead>';
+  const tb=document.createElement('tbody');
+  const base=+msIn.value||3000;
+  lines.forEach((ln,i)=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${esc(ln.slice(0,40))}</td><td></td><td></td><td></td>`;
+    const num=document.createElement('input');num.type='number';num.step=0.25;num.value=((i*base)/1000).toFixed(2);
+    tr.children[1].appendChild(num);
+    const btn=document.createElement('button');btn.textContent='→ nå';btn.onclick=()=>{if(previewPlayer)num.value=previewPlayer.getCurrentTime().toFixed(2);} ;
+    tr.children[2].appendChild(btn);
+    const rng=document.createElement('input');rng.type='range';rng.min=0;rng.max=600;rng.step=0.25;rng.value=num.value;rng.oninput=()=>num.value=rng.value;num.oninput=()=>rng.value=num.value;
+    tr.children[3].appendChild(rng);
+    tb.appendChild(tr);
+  });
+  table.appendChild(tb);
+  editor.appendChild(table);
+  prevBtn.disabled=false;makeBtn.disabled=false;
+}
 
-  function buildTimingEditor(){
-    const lines=lyricsIn.value.trim().split(/\r?\n/).filter(Boolean);
-    if(!youtubeUrlIn.value.trim()||!lines.length){alert('Fyll ut både YouTube‑lenke og tekst.');return;}
-    timingEditor.innerHTML='';
-
-    if(window.YT&&YT.Player){const d=document.createElement('div');d.id='videoPrev';d.style=maxWidth='360px';d.style.marginBottom='1rem';timingEditor.appendChild(d);if(!previewPlayer)previewPlayer=new YT.Player('videoPrev',{width:360,height:203,videoId:vidId(youtubeUrlIn.value.trim())});}
-
-    const base=+lineMsIn.value||3000;
-    const table=document.createElement('table');
-    table.innerHTML='<thead><tr><th>Linje</th><th>Tid (sek)</th><th>⏱</th><th>Finjuster</th></tr></thead>';
-    const tb=document.createElement('tbody');
-    lines.forEach((ln,i)=>{
-      const tr=document.createElement('tr');
-      tr.innerHTML=`<td>${esc(ln.slice(0,40))}</td><td></td><td></td><td></td>`;
-      const num=document.createElement('input');num.type='number';num.step=0.25;num.value=((i*base)/1000).toFixed(2);
-      tr.children[1].appendChild(num);
-      const btn=document.createElement('button');btn.textContent='→ nå';btn.onclick=()=>{if(previewPlayer)num.value=previewPlayer.getCurrentTime().toFixed(2);} ;
-      tr.children[2].appendChild(btn);
-      const rng=document.createElement('input');rng.type='range';rng.min=0;rng.max=600;rng.step=0.25;rng.value=num.value;rng.oninput=()=>num.value=rng.value;num.oninput=()=>rng.value=num.value;
-      tr.children[3].appendChild(rng);
-      tb.appendChild(tr);
-    });
-    table.appendChild(tb);
-    timingEditor.appendChild(table);
-
-    previewBtn.disabled=false;makeBtn.disabled=false;
-  }
-
-  // ---------- Game HTML builder ----------
-  function createGameHtml(){
-    const url=youtubeUrlIn.value.trim();
-    const lines=lyricsIn.value.trim().split(/\r?\n/).filter(Boolean);
-    const missing=missingIn.value.split(',').map(w=>w.trim().toLowerCase()).filter(Boolean);
-    const offs=collectDelays();
-
-    const count={};lines.forEach(l=>l.split(/(\b)/).forEach(t=>{const k=t.toLowerCase();if(missing.includes(k))count[k]=(count[k]||0)+1;}));
-
-    const wordsHtml=[...missing].sort(()=>Math.random()-0.5).map(w=>`<div class="word-item" data-word="${w}"><span>${w}</span><div class="progress" style="--val:${count[w]};"></div></div>`).join('');
-
-    const lyricHtml=lines.map((ln,i)=>{
-      const parts=ln.split(/(\b)/).map(tok=>missing.includes(tok.toLowerCase())?`<input type="text" class="blank" data-word="${tok.toLowerCase()}" maxlength="${tok.length}" />`:esc(tok));
-      return `<p class="kara" data-delay="${offs[i]||0}">${parts.join('')}</p>`;
-    }).join('\n');
-
-    const scriptClose='</'+'script>';
-
-    return `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"><title>Lyttespill</title><meta name="viewport" content="width=device-width,initial-scale=1" />
-    <style>:root{--brand:#3b82f6;--success:#10b981;--danger:#ef4444;--bg:#f3f4f6;--text:#111827;}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:1rem;}#player{width:640px;height:360px;background:#000;border-radius:0.75rem;} .wrap{max-width:1200px;width:100%;display:flex;flex-direction:column;align-items:center;} .row{display:flex;gap:1rem;width:100%;justify-content:center;} .side{width:230px;} .word-item{background:#e5e7eb;padding:0.25rem 0.5rem;border-radius:0.5rem;margin:2px;cursor:pointer;font-weight:600;display:flex;flex-direction:column;align-items:center;} .word-item.done{background:var(--success);color:#fff;} .progress{width:100%;height:4px;background:#d1d5db;border-radius:2px;margin-top:2px;position:relative;overflow:hidden;} .progress::after{content:'';position:absolute;inset:0;background:var(--brand);transform-origin:left;transition:transform .3s;} .score{padding:1rem;border:2px solid var(--brand);border-radius:0.75rem;text-align:center;font-size:1.25rem;} .score span{font-size:2rem;} .controls{margin:0.75rem 0;display:flex;gap:1rem;} .controls button{padding:0.5rem 1rem;font-size:1rem;} #lyrics{max-width:640px;text-align:center;} .kara{opacity:0;transition:opacity .3s;font-size:1.3rem;margin:0.25rem 0;} .prev{opacity:0.3;font-size:1rem;} .next{opacity:0.3;font-size:1rem;} .current{opacity:1;font-size:1.4rem;font-weight:700;} input.blank{border:none;border-bottom:2px solid var(--brand);min-width:50px;text-align:center;font-size:1.1rem;} input.blank:disabled{border-bottom-color:var(--success);color:var(--success);}  </style>
-    <script src="https://www.youtube.com/iframe_api"></script></head><body><div class="wrap"><div class="row"><div class="side"><h3>Ord</h3><div class="word-bank">${wordsHtml}</div></div><div id="player"></div><div class="side"><h3>Poeng</h3><div class="score">⭐ <span id="score">0</span></div></div></div><div class="controls"><button id="back">⏪ 10 sek</button><button id="skip">Hopp over (-1)</button></div><div id="lyrics">${lyricHtml}</div></div><script>
-    const videoUrl=${JSON.stringify(url)};const missing=${JSON.stringify(missing)};const counts=${JSON.stringify(count)};let remaining={...counts},score=0,player,currentIdx=-1,lines;
-    function onYouTubeIframeAPIReady(){const id=(videoUrl.match(/[?&]v=([^&]+)/)||videoUrl.match(/youtu\.be\/([^?]+)/)||[])[1]||'';player=new YT.Player('player',{height:360,width:640,videoId:id});player.addEventListener('onStateChange',e=>{if(e.data===YT.PlayerState.PLAYING&&!window.sync){window.sync=true;sync();}});}    
-    function sync(){lines=[...document.querySelectorAll('.kara')];const start=performance.now();(function step(){const t=performance.now()-start;lines.forEach((l,i)=>{if(t>=+l.dataset.delay&&!l.classList.contains('show')){l.classList.add('show');updateFocus(i);}});requestAnimationFrame(step);})();}
-    function updateFocus(i){lines.forEach(l=>l.classList.remove('prev','current','next'));if(i>0){lines[i-1].classList.add('prev');}lines[i].classList.add('current');if(i<lines.length-1){lines[i+1].classList.add('next');}currentIdx=i;focusNext();}
-    function focusNext(){const inp=document.querySelector('.current input.blank:not(:disabled)');if(inp)inp.focus();}
-    document.getElementById('back').onclick=()=>player.seekTo(Math.max(0,player.getCurrentTime()-10),true);
-    document.getElementById('skip').onclick=()=>{const inp=document.querySelector('.current input.blank:not(:disabled)');if(inp){inp.disabled=true;remaining[inp.dataset.word]--;updateWord(inp.dataset.word);score--;document.getElementById('score').textContent=score;focusNext();}};
-    document.addEventListener('input',e=>{const inp=e.target;if(!inp.classList.contains('blank'))return;const w=inp.dataset.word;if(inp.value.trim().toLowerCase()===w){inp.disabled=true;remaining[w]--;updateWord(w);score++;document.getElementById('score').textContent=score;focusNext();if(document.querySelectorAll('input.blank:not(:disabled)').length===0){setTimeout(()=>alert('Gratulerer 🏆 Poeng: '+score),300);}}else if(inp.value.length>=w.length){inp.value='';}});
-    function updateWord(w){const it=document.querySelector('.word-item[data-word="'+w+'"]');if(it){const filled=counts[w]-remaining[w];it.querySelector('.progress').style.setProperty('--filled',filled);if(remaining[w]<=0)it.classList.add('done');}}
-    document.querySelector('.word-bank').onclick=e=>{const it=e.target.closest('.word-item');if(it){const inp=document.querySelector('.current input.blank:not(:disabled)');if(inp){inp.value=it.dataset.word;inp.dispatchEvent(new Event('input'));}}};
-    </script>${scriptClose}</body></html>`;
-  }
-</script>
-</body>
-</html>
+function createGame(){
+  const video=urlIn.value.trim();
+  const lines=lyricsIn.value.trim().split(/\r?\n/).filter(Boolean);
+  const missing=wordsIn.value.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  const delays=collectDelays();
+  const count={};lines.forEach(l=>l.split(/(\b)/).forEach(t=>{const k=t.toLowerCase();if(missing.includes(k))count[k]=(count[k]||0)+1;}));
+  const wordsHTML=[...missing].sort(()=>Math.random()-0.5).map(w=>`<div class="word-item" data-word="${w}"><span>${w}</span><div class="progress" style="--val:${count[w]};"></div></div>`).join('');
+  const lyricHTML=lines.map((ln,i)=>{
+    const parts=ln.split(/(\b)/).map(tok=>missing.includes(tok.toLowerCase())?`<input type="text" class="blank" data-word="${tok.toLowerCase()}" maxlength="${tok.length}" />`:esc(tok));
+    return `<p class="kara" data-delay="${delays[i]||0}">${parts.join('')}</p>`;
+  }).join('\n');
+  const sc='</'+'script>';
+  return `<!DOCTYPE html><html lang="no"><head><meta charset="UTF-8"><title>Lyttespill</title><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>:root{--brand:#3b82f6;--success:#10b981;--danger:#ef4444;--bg:#f3f4f6;--text:#111827;}body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;padding:1rem;}#player{width:640px;height:360px;background:#000;border-radius:0.75rem;} .wrap{max-width:1200px;width:100%;display:flex;flex-direction:column;align-items:center;} .row{display:flex;gap:1rem;width:100%;justify-content:center;} .side{width:230px;} .word-item{background:#e5e7eb;padding:0.25rem 0.5rem;border-radius:0.5rem;margin:2px;cursor:pointer;font-weight:600;display:flex;flex-direction:column;align-items:center;} .word-item.done{background:var(--success);color:#fff;} .progress{width:100%;height:4px;background:#d1d5db;border-radius:2px;margin-top:2px;position:relative;overflow:hidden;} .progress::after{content:'';position:absolute;inset:0;background:var(--brand);transform-origin:left;transition:transform .3s;} .score{padding:1rem;border:2px solid var(--brand);border-radius:0.75rem;text-align:center;font-size:1.25rem;} .score span{font-size:2rem;} .controls{margin:0.75rem 0;display:flex;gap:1rem;} .controls button{padding:0.5rem 1rem;font-size:1rem;} #lyrics{max-width:640px;text-align:center;} .kara{opacity:0;transition:opacity .3s;font-size:1.3rem;margin:0.25rem 0;} .prev{opacity:0.3;font-size:1rem;} .next{opacity:0.3;font-size:1rem;} .current{opacity:1;font-size:1.4rem;font-weight:700;} input.blank{border:none;border-bottom:2px solid var(--brand);min-width:50px;text-align:center;font-size:1.1rem;} input.blank:disabled{border-bottom-color:var(--success);color:var(--success);}  </style><script src="https://www.youtube.com/iframe_api"></script></head><body><div class="wrap"><div class="row"><div class="side"><h3>Ord</h3><div class="word-bank">${wordsHTML}</div></div><div id="player"></div><div class="side"><h3>Poeng</h3><div class="score">⭐ <span id="score">0</span></div></div></div><div class="controls"><button id="back">⏪ 10 sek</button><button id="skip">Hopp over (-1)</button></div><div id="lyrics">${lyricHTML}</div></div><script>const videoUrl=${JSON.stringify(video)};const missing=${JSON.stringify(missing)};const total=${JSON.stringify(count)};let left={...total},score=0,player,lines,current=-1;function onYouTubeIframeAPIReady(){const id=(videoUrl.match(/[?&]v=([^&]+)/)||videoUrl.match(/youtu\.be\/([^?]+)/)||[])[1]||'';player=new YT.Player('player',{width:640,height:360,videoId:id});player.addEventListener('onStateChange',e=>{if(e.data===YT.PlayerState.PLAYING&&!window.started){window.started=true;startSync();}});}function startSync(){lines=[...document.querySelectorAll('.kara')];const t0=performance.now();(function step(){const t=performance.now()-t0;lines.forEach((l,i)=>{if(t>=+l.dataset.delay&&!l.classList.contains('show')){l.classList.add('show');focusLine(i);}});requestAnimationFrame(step);})();}function focusLine(i){lines.forEach(l=>l.classList.remove('prev','current','next'));if(i>0)lines[i-1].classList.add('prev');lines[i].classList.add('current');if(i<lines.length-1)lines[i+1].classList.add('next');current=i;focusNext();}function focusNext(){const inp=document.querySelector('.current input.blank:not(:disabled)');if(inp)inp.focus();}document.getElementById('back').onclick=()=>player.seekTo(Math.max(0,player
